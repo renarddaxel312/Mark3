@@ -3,7 +3,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from ik_service_interface.srv import SolveIK
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32MultiArray
 from IKsolverNode.dh_utils import urdf, robot_dh
 from IKsolverNode.kinematics import inverse_kinematics_urdf, parse_urdf
 from ament_index_python.packages import get_package_share_directory
@@ -22,6 +22,7 @@ class IKServiceServer(Node):
         
         self.joint_types = initial_joint_types
         self.config_ready = False
+        self.q_init = None
         
         self.urdf_updated_pub = self.create_publisher(String, '/urdf_updated', 10)
         
@@ -29,6 +30,13 @@ class IKServiceServer(Node):
             String,
             '/config/axis',
             self.config_callback,
+            10
+        )
+
+        self.q_sub = self.create_subscription(
+            Float32MultiArray,
+            '/pos/angles',
+            self.q_callback,
             10
         )
         
@@ -59,7 +67,14 @@ class IKServiceServer(Node):
             self.get_logger().error(f'Erreur de parsing JSON: {e}')
         except Exception as e:
             self.get_logger().error(f'Erreur lors de la mise à jour de config: {e}')
+
+    def q_callback(self, msg):
+        try:
+            self.q_init = np.array(msg.data)
+        except Exception as e:
+            self.get_logger().error(f'Erreur lors de la mise à jour de la position initiale: {e}')
     
+
     def update_robot_config(self, joint_types):
         try:
             self.joint_types = joint_types
@@ -116,6 +131,7 @@ class IKServiceServer(Node):
             q_solution = inverse_kinematics_urdf(
                 URDF_PATH,
                 target_pos=target_pos,
+                q_init=self.q_init,
                 max_iter=2000,
                 lr=0.3
             )
