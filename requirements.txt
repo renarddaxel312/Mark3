@@ -1,0 +1,18 @@
+# Python dependencies for Mark3
+# Note: ROS2 packages (rclpy, sensor_msgs, etc.) must be installed via apt-get
+
+# Numerical computing
+numpy>=1.21.0
+
+# Computer vision
+opencv-python>=4.5.0
+
+# Qt GUI framework
+PySide6>=6.4.0
+
+# 3D visualization
+vtk>=9.2.0
+
+# ROS2 Python bridge (if not installed via apt)
+# cv-bridge is typically installed via apt: ros-humble-cv-bridge
+

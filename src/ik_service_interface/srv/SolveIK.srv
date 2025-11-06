@@ -1,0 +1,10 @@
+# Request: position cible et optionnellement orientation
+geometry_msgs/Point target_position      # Position cible (x, y, z)
+bool use_orientation                     # True si orientation est spécifiée
+geometry_msgs/Vector3 target_orientation # Orientation cible en RPY (roll, pitch, yaw) en radians
+---
+# Response: angles des joints
+float64[] joint_angles                   # Angles des joints en degrés
+bool success                             # True si IK a convergé
+string message                           # Message de statut
+
