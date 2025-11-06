@@ -105,29 +105,6 @@ ros2 launch system robot_backend.launch.py
    - Rotate, zoom, and pan using mouse controls
    - Monitor end-effector position
 
-### Using the IK Service:
-
-```python
-from ik_service_interface.srv import SolveIK
-from geometry_msgs.msg import Point
-import rclpy
-
-rclpy.init()
-node = rclpy.create_node('ik_client')
-client = node.create_client(SolveIK, 'solve_ik')
-
-request = SolveIK.Request()
-request.target_position = Point(x=0.2, y=0.2, z=0.3)
-request.use_orientation = False
-
-future = client.call_async(request)
-rclpy.spin_until_future_complete(node, future)
-response = future.result()
-
-if response.success:
-    print(f"Joint angles: {response.joint_angles}")
-```
-
 ## Project Structure
 
 ```
