@@ -57,3 +57,11 @@ coverage.xml
 # pytest
 .pytest_cache/
 
+# YOLO models and datasets (too large for git)
+*.pt
+yolo_training/
+Screwdriver.v17i.yolov8/
+
+# Temporary files
+=*
+
