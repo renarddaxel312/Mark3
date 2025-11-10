@@ -1,0 +1,27 @@
+# Example camera calibration file for Nuroum 1080p camera
+# Replace these values with your actual calibration results from OpenCV calibration
+# 
+# Specs: Nuroum USB Camera
+# Resolution: 1080p (1920x1080)
+# Focal length: 4.4 mm
+# Aperture: f/2.4
+
+image_width: 1920
+image_height: 1080
+camera_name: "nuroum_1080p"
+
+# Camera intrinsic matrix (3x3)
+# Format: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+# These are PLACEHOLDER values - you MUST calibrate your camera!
+# Typical values for 1080p: fx ≈ 1200-2000, cx ≈ 960, cy ≈ 540
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [1500.0, 0.0, 960.0, 0.0, 1500.0, 540.0, 0.0, 0.0, 1.0]
+
+# Distortion coefficients (k1, k2, p1, p2, k3)
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+

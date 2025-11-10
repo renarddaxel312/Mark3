@@ -2,7 +2,7 @@
 build/
 install/
 log/
-
+plot/
 # Python
 __pycache__/
 *.py[cod]
