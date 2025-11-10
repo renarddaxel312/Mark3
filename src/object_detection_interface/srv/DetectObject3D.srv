@@ -1,0 +1,14 @@
+# Request: classe d'objet à détecter (optionnel, vide = détecter tous les objets)
+string object_class
+# Taille connue de l'objet en mètres (optionnel, pour améliorer l'estimation)
+float64 known_object_size
+---
+# Response: coordonnées 3D de l'objet détecté dans le repère base_link
+geometry_msgs/Point position_3d
+bool success
+string message
+string detected_class
+float64 confidence
+# Coordonnées dans le repère caméra (pour debug)
+geometry_msgs/Point position_camera_frame
+

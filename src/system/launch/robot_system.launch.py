@@ -63,14 +63,39 @@ def generate_launch_description():
         remappings=[]
     )
     
-    # Node 4: Interface
+    # Node 4: Object Detection
+    object_detection_node = Node(
+        package='ObjectDetectionNode',
+        executable='object_detection_node',
+        name='object_detection_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[{
+            'calibration_file': os.path.expanduser('~/Mark3_ws/config/camera_calibration.yaml'),
+            'model_path': os.path.expanduser('~/Mark3_ws/yolo_training/tools_detector2/weights/best.pt'),
+            'camera_frame': 'camera_frame',
+            'base_frame': 'base_link',
+            'fixed_depth': 0.5,
+            'use_midas': False,  # Désactivé - utilise estimation basée sur taille bbox
+            'use_bbox_size': True,  # Estimation de profondeur basée sur la taille du bounding box
+            'known_object_size': 0.20,  # Taille réelle du tournevis en mètres (20 cm)
+            'midas_depth_scale': 0.5,
+            'capture_confidence_threshold': 0.6,
+            'stable_frames_required': 3
+        }],
+        remappings=[]
+    )
+    
+    # Node 5: Interface
     interface_node = Node(
         package='Interface',
         executable='Interface',
         name='IHM',
         output='screen',
         emulate_tty=True,
-        parameters=[],
+        parameters=[{
+            'yolo_model': os.path.expanduser('~/Mark3_ws/yolo_training/tools_detector2/weights/best.pt')
+        }],
         remappings=[]
     )
     
@@ -80,6 +105,7 @@ def generate_launch_description():
         ik_server_node,
         state_publisher_node,
         urdf_reloader_node,
+        object_detection_node,
         interface_node,
     ])
 
