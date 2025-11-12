@@ -27,11 +27,14 @@ The system consists of several ROS2 nodes working together:
 ## Prerequisites
 
 - ROS2 (Humble or later)
-- Python 3.8+
+- Python 3.8+ with venv support
+- Python virtual environment (recommended)
 - Qt6 (PySide6)
 - VTK
 - OpenCV
 - NumPy
+- PyTorch (for YOLO object detection)
+- Ultralytics (for YOLO object detection)
 
 ## Installation
 
@@ -47,6 +50,7 @@ sudo apt-get update
 sudo apt-get install -y \
     ros-humble-desktop \
     python3-pip \
+    python3-venv \
     python3-pyside6 \
     python3-vtk \
     python3-opencv \
@@ -54,20 +58,40 @@ sudo apt-get install -y \
     ros-humble-robot-state-publisher
 ```
 
-3. Install Python dependencies:
+3. Create and activate a Python virtual environment:
 ```bash
-pip3 install -r requirements.txt
+python3 -m venv ~/venv
+source ~/venv/bin/activate
 ```
 
-   **Note**: ROS2 packages (rclpy, sensor_msgs, geometry_msgs, etc.) are installed via apt-get in step 2. The requirements.txt file contains only additional Python packages.
+   **Important**: Always activate the virtual environment before building or running the system:
+   ```bash
+   source ~/venv/bin/activate
+   ```
 
-4. Build the workspace:
+4. Install Python dependencies in the virtual environment:
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+   **Note**: ROS2 packages (rclpy, sensor_msgs, geometry_msgs, etc.) are installed via apt-get in step 2. The requirements.txt file contains additional Python packages that need to be installed in the virtual environment (e.g., ultralytics, torch for YOLO object detection).
+
+5. Build the workspace (with virtual environment activated):
 ```bash
 colcon build --symlink-install
 source install/setup.bash
 ```
 
+   **Note**: Make sure to activate the virtual environment before building, as some ROS2 nodes require packages installed in the venv (like `ultralytics` for object detection).
+
 ## Usage
+
+**Important**: Always activate the virtual environment before launching the system:
+```bash
+source ~/venv/bin/activate
+source install/setup.bash
+```
 
 ### Launch the complete system:
 
