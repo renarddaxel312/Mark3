@@ -72,16 +72,10 @@ def generate_launch_description():
         emulate_tty=True,
         parameters=[{
             'calibration_file': os.path.expanduser('~/Mark3_ws/config/camera_calibration.yaml'),
-            'model_path': os.path.expanduser('~/Mark3_ws/yolo_training/tools_detector2/weights/best.pt'),
+            'model_path': os.path.expanduser('~/Mark3_ws/model/tools_detection.pt'),
             'camera_frame': 'camera_frame',
             'base_frame': 'base_link',
-            'fixed_depth': 0.5,
-            'use_midas': False,  # Désactivé - utilise estimation basée sur taille bbox
-            'use_bbox_size': True,  # Estimation de profondeur basée sur la taille du bounding box
-            'known_object_size': 0.20,  # Taille réelle du tournevis en mètres (20 cm)
-            'midas_depth_scale': 0.5,
-            'capture_confidence_threshold': 0.6,
-            'stable_frames_required': 3
+            'fixed_depth': 0.0
         }],
         remappings=[]
     )
@@ -94,9 +88,25 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True,
         parameters=[{
-            'yolo_model': os.path.expanduser('~/Mark3_ws/yolo_training/tools_detector2/weights/best.pt')
+            'yolo_model': os.path.expanduser('~/Mark3_ws/model/tools_detection.pt')
         }],
         remappings=[]
+    )
+
+    audio_capture_node = Node(
+        package='audio_capture_node',
+        executable='audio_capture_node',
+        name='audio_capture_node',
+        output='screen',
+        emulate_tty=True,
+    )
+
+    voice_command_node = Node(
+        package='voice_command_node',
+        executable='voice_command_node',
+        name='voice_command_node',
+        output='screen',
+        emulate_tty=True,
     )
     
     return LaunchDescription([
@@ -107,5 +117,7 @@ def generate_launch_description():
         urdf_reloader_node,
         object_detection_node,
         interface_node,
+        audio_capture_node,
+        voice_command_node,
     ])
 

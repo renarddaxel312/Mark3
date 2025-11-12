@@ -1,4 +1,10 @@
+#!/usr/bin/env python3
 import os
+import sys
+
+venv_python = os.path.expanduser('~/venv/bin/python3')
+if os.path.exists(venv_python) and sys.executable != venv_python:
+    os.execv(venv_python, [venv_python] + sys.argv)
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -131,6 +137,7 @@ class IKServiceServer(Node):
             q_solution = inverse_kinematics_urdf(
                 URDF_PATH,
                 target_pos=target_pos,
+                target_rpy=target_rpy,
                 q_init=self.q_init,
                 max_iter=2000,
                 lr=0.3

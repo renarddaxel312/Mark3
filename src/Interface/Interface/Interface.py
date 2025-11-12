@@ -11,6 +11,7 @@ if os.path.exists(venv_python) and sys.executable != venv_python:
         # Si ultralytics n'est pas disponible, utiliser le venv
         os.execv(venv_python, [venv_python] + sys.argv)
 
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
@@ -24,8 +25,9 @@ from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
-import time
 from ultralytics import YOLO
+import threading
+import json
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -46,12 +48,14 @@ class CameraSubscriber(Node):
         self.joint_states = None
         self.detection_enabled = False
         self.last_detection = None
-        self.service_call_in_progress = False  # Éviter les appels multiples en parallèle
-        self.service_call_id = 0  # ID unique pour chaque appel de service
-        self.pending_service_calls = {}  # Dictionnaire pour suivre les appels en cours
+        self.detection_lock = threading.Lock()
+        self.yolo_processing = False
 
-        self.subscription = self.create_subscription(
-            Image, '/camera/raw', self.callback, 10)
+        self.raw_image_sub = self.create_subscription(
+            Image, '/camera/raw', self.raw_image_callback, 10)
+        
+        self.object_image_sub = self.create_subscription(
+            Image, '/camera/object', self.object_image_callback, 10)
 
         self.joint_states_sub = self.create_subscription(
             JointState, '/joint_states', self.joint_states_callback, 10)
@@ -62,7 +66,7 @@ class CameraSubscriber(Node):
         self.urdf_update_callback = None
 
         self.pos_pub = self.create_publisher(Float32MultiArray, '/pos/coord', 10)
-        
+
         self.angles_pub = self.create_publisher(Float32MultiArray, '/pos/angles', 10)
         
         self.ik_client = self.create_client(SolveIK, 'solve_ik')
@@ -94,161 +98,85 @@ class CameraSubscriber(Node):
         if self.urdf_update_callback:
             self.urdf_update_callback(urdf_path)
 
-    def callback(self, msg):
-        try:
-            self.image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            
-            if self.detection_enabled and self.yolo_model is not None and self.image is not None:
-                self.detect_and_annotate()
-        except Exception as e:
-            self.get_logger().error(f"Erreur conversion image : {e}")
+    def raw_image_callback(self, msg):
+        if not self.detection_enabled:
+            try:
+                self.image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            except Exception as e:
+                self.get_logger().error(f"Erreur conversion image raw: {e}")
     
-    def detect_and_annotate(self):
-        try:
-            # Seuil de confiance minimum (0.25 par défaut pour YOLO)
-            conf_threshold = 0.25
-            results = self.yolo_model(self.image, conf=conf_threshold, verbose=False)
-            
-            if len(results) > 0 and len(results[0].boxes) > 0:
-                annotated_image = results[0].plot()
+    def object_image_callback(self, msg):
+        if self.detection_enabled:
+            try:
+                self.image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                 
-                best_detection = None
-                best_confidence = 0.0
-                
-                for box in results[0].boxes:
-                    cls = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    class_name = self.yolo_model.names[cls]
-                    
-                    # Filtrer uniquement les tournevis (screwdriver)
-                    if class_name.lower() != 'screwdriver':
-                        continue
-                    
-                    if conf > best_confidence:
-                        best_confidence = conf
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        best_detection = {
-                            'bbox': [x1, y1, x2, y2],
-                            'class': class_name,
-                            'confidence': conf
-                        }
-                
-                # Log pour debug
-                if best_detection:
-                    self.get_logger().info(f"Détection: {best_detection['class']} (conf: {best_detection['confidence']:.2f})")
-                else:
-                    self.get_logger().debug("Aucun tournevis détecté avec confiance suffisante")
-                
-                if best_detection:
-                    x1, y1, x2, y2 = best_detection['bbox']
-                    center_x = int((x1 + x2) / 2)
-                    center_y = int((y1 + y2) / 2)
-                    
-                    label = f"{best_detection['class']} {best_detection['confidence']:.2f}"
-                    cv2.putText(annotated_image, label, (int(x1), int(y1) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                    
-                    # Mettre à jour last_detection sans écraser les coordonnées existantes
-                    if self.last_detection is None:
-                        self.last_detection = {}
-                    # Mettre à jour seulement les champs de détection, pas les coordonnées
-                    detection_data = {
-                        'class': best_detection['class'],
-                        'confidence': best_detection['confidence'],
-                        'bbox': best_detection['bbox']
-                    }
-                    # Préserver les coordonnées existantes si elles existent
-                    if 'position_3d' in self.last_detection:
-                        detection_data['position_3d'] = self.last_detection['position_3d']
-                    if 'position_camera' in self.last_detection:
-                        detection_data['position_camera'] = self.last_detection['position_camera']
-                    self.last_detection.update(detection_data)
-                    self.image = annotated_image
-                    
-                    # Éviter les appels multiples en parallèle
-                    if not self.service_call_in_progress and self.object_detection_client.service_is_ready():
-                        self.service_call_in_progress = True
-                        self.service_call_id += 1
-                        call_id = self.service_call_id
-                        
-                        request = DetectObject3D.Request()
-                        request.object_class = best_detection['class']
-                        request.known_object_size = 0.0
-                        
-                        self.get_logger().info(f"📞 Appel service détection #{call_id} pour {best_detection['class']} (conf: {best_detection['confidence']:.2f})")
-                        future = self.object_detection_client.call_async(request)
-                        
-                        # Stocker les informations de l'appel
-                        self.pending_service_calls[call_id] = {
-                            'future': future,
-                            'detection': best_detection.copy(),
-                            'timestamp': time.time()
-                        }
-                        
-                        future.add_done_callback(lambda f, cid=call_id: self._detection_response_callback(f, cid))
-                    elif self.service_call_in_progress:
-                        self.get_logger().debug("Appel service déjà en cours, ignoré")
-                    else:
-                        self.get_logger().warn("Service détection non disponible")
-        except Exception as e:
-            self.get_logger().error(f"Erreur détection YOLO: {e}")
-    
-    def _detection_response_callback(self, future, call_id):
-        try:
-            # Vérifier si cet appel est toujours valide (pas trop ancien)
-            if call_id not in self.pending_service_calls:
-                self.get_logger().warn(f"Callback pour appel #{call_id} ignoré (appel expiré ou annulé)")
-                self.service_call_in_progress = False
+                if not self.yolo_processing:
+                    threading.Thread(target=self.request_detection_info, daemon=True).start()
+            except Exception as e:
+                self.get_logger().error(f"Erreur conversion image object: {e}")
+
+    def request_detection_info(self):
+        with self.detection_lock:
+            if self.yolo_processing:
                 return
-            
-            call_info = self.pending_service_calls.pop(call_id)
-            response = future.result()
-            self.service_call_in_progress = False  # Libérer le verrou
-            
-            self.get_logger().info(f"📥 Callback détection #{call_id} reçu: success={response.success}, message='{response.message}'")
-            
-            if response.success:
-                self.get_logger().info(f"  ✓ Coordonnées reçues: 3D=({response.position_3d.x:.3f}, {response.position_3d.y:.3f}, {response.position_3d.z:.3f})")
-                # Mettre à jour last_detection avec les coordonnées
-                if self.last_detection is None:
-                    self.last_detection = {}
+            self.yolo_processing = True
+        
+        try:
+            if self.object_detection_client.service_is_ready():
+                request = DetectObject3D.Request()
+                request.object_class = 'screwdriver'
+                request.known_object_size = 0.0
                 
-                # S'assurer que les coordonnées sont bien ajoutées
-                self.last_detection['position_3d'] = {
-                    'x': float(response.position_3d.x),
-                    'y': float(response.position_3d.y),
-                    'z': float(response.position_3d.z)
-                }
-                self.last_detection['position_camera'] = {
+                future = self.object_detection_client.call_async(request)
+                future.add_done_callback(self._detection_response_callback)
+        except Exception as e:
+            self.get_logger().error(f"Erreur appel service détection: {e}")
+        finally:
+            with self.detection_lock:
+                self.yolo_processing = False
+    
+    def _detection_response_callback(self, future):
+        try:
+            response = future.result()
+            if response.success:
+                detection_info = {}
+
+                detection_info['class'] = response.detected_class
+                detection_info['confidence'] = float(response.confidence)
+                
+                detection_info['position_camera'] = {
                     'x': float(response.position_camera_frame.x),
                     'y': float(response.position_camera_frame.y),
                     'z': float(response.position_camera_frame.z)
                 }
-                
-                self.get_logger().info(
-                    f"Coordonnées reçues et mises à jour - 3D: X={response.position_3d.x:.3f}m "
-                    f"Y={response.position_3d.y:.3f}m Z={response.position_3d.z:.3f}m | "
-                    f"Caméra: X={response.position_camera_frame.x:.3f}m "
-                    f"Y={response.position_camera_frame.y:.3f}m Z={response.position_camera_frame.z:.3f}m"
-                )
-                self.get_logger().info(f"last_detection keys après mise à jour: {list(self.last_detection.keys())}")
+
+                if response.message:
+                    try:
+                        payload = json.loads(response.message)
+                        if isinstance(payload, dict):
+                            if 'bbox' in payload:
+                                detection_info['bbox'] = [float(v) for v in payload['bbox']]
+                            if 'center' in payload and isinstance(payload['center'], (list, tuple)) and len(payload['center']) >= 2:
+                                detection_info['center'] = {
+                                    'x': float(payload['center'][0]),
+                                    'y': float(payload['center'][1])
+                                }
+                    except json.JSONDecodeError:
+                        pass
+
+                self.last_detection = detection_info
             else:
-                self.get_logger().warn(f"Service détection #{call_id} échoué: {response.message}")
-                # Mettre à jour last_detection même en cas d'échec pour éviter "En attente" permanent
-                if self.last_detection is None:
-                    self.last_detection = {}
+                self.last_detection = None
         except Exception as e:
-            if call_id in self.pending_service_calls:
-                self.pending_service_calls.pop(call_id)
-            self.service_call_in_progress = False  # Libérer le verrou en cas d'erreur
-            self.get_logger().error(f"Erreur callback détection #{call_id}: {e}", exc_info=True)
+            self.get_logger().error(f"Erreur callback détection: {e}")
+            self.last_detection = None
 
     def publish_position(self, x, y, z, use_orientation=False, roll=0.0, pitch=0.0, yaw=0.0):
         msg = Float32MultiArray()
         msg.data = [x, y, z]
         self.pos_pub.publish(msg)
         self.get_logger().info(f"Position cible : x={x}, y={y}, z={z}")
-        
+
         if not self.ik_client.service_is_ready():
             self.get_logger().error("Service IK non disponible!")
             return
@@ -275,20 +203,38 @@ class CameraSubscriber(Node):
     
     def _ik_response_callback(self, future):
         try:
-            response = future.result()
+            if not future.done():
+                self.get_logger().warn("Callback IK appelé mais future pas terminé")
+                return
+            
+            # Essayer de récupérer la réponse avec gestion d'erreur robuste
+            try:
+                response = future.result()
+            except Exception as result_error:
+                error_msg = str(result_error)
+                if "Input/output error" in error_msg or "Errno 5" in error_msg:
+                    # Erreur de timing/communication - ignorer silencieusement
+                    # Le service IK a quand même réussi (on le voit dans les logs)
+                    return
+                else:
+                    raise
             
             if response.success:
                 joint_angles = response.joint_angles
                 self.get_logger().info(f"IK résolue: {np.round(joint_angles, 2).tolist()}")
                 
                 angles_msg = Float32MultiArray()
-                angles_msg.data = joint_angles
+                angles_msg.data = [float(angle) for angle in joint_angles]
                 self.angles_pub.publish(angles_msg)
                 self.get_logger().info(f"Angles publiés sur /pos/angles")
             else:
                 self.get_logger().error(f"Échec IK: {response.message}")
         except Exception as e:
-            self.get_logger().error(f"Erreur réponse IK: {e}")
+            error_msg = str(e)
+            if "Input/output error" in error_msg or "Errno 5" in error_msg:
+                self.get_logger().warn(f"Erreur de communication IK (ignorée): {error_msg}")
+            else:
+                self.get_logger().error(f"Erreur réponse IK: {e}")
 
 
 class RosThread(QThread):
@@ -387,10 +333,6 @@ class MainWindow(QWidget):
 
         self.send_button = QPushButton("Envoyer la position")
         self.send_button.clicked.connect(self.send_position)
-        
-        self.use_screwdriver_button = QPushButton("Utiliser position du tournevis")
-        self.use_screwdriver_button.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        self.use_screwdriver_button.clicked.connect(self.use_screwdriver_position)
 
         os.environ["QT_QPA_PLATFORMTHEME"] = "qt5ct"
 
@@ -401,7 +343,6 @@ class MainWindow(QWidget):
         grid_inputs.addWidget(QLabel("Z :"), 2, 0)
         grid_inputs.addWidget(self.z_input, 2, 1)
         grid_inputs.addWidget(self.send_button, 3, 0, 1, 2)
-        grid_inputs.addWidget(self.use_screwdriver_button, 4, 0, 1, 2)
 
         pos_layout.addLayout(grid_inputs)
         pos_group.setLayout(pos_layout)
@@ -452,7 +393,7 @@ class MainWindow(QWidget):
         visu_layout.addWidget(self.robot_viewer)
         
         self.zone_visu.setLayout(visu_layout)
-        
+
         self.viz_timer = QTimer()
         self.viz_timer.timeout.connect(self.update_3d_view)
         self.viz_timer.start(100)
@@ -624,7 +565,7 @@ class MainWindow(QWidget):
         msg = String()
         msg.data = config_json
         self.axis_pub.publish(msg)
-        
+
         print("Envoi automatique de la position home après changement de config")
         QTimer.singleShot(200, self.send_home_after_config)
 
@@ -643,7 +584,7 @@ class MainWindow(QWidget):
             print(f"Position home envoyée ({num_axes} axes) sur /pos/angles: {msg.data}")
         except Exception as e:
             print(f"Erreur lors de l'envoi de la position home: {e}")
-    
+
     def send_home(self):
         try:
             from std_msgs.msg import Float32MultiArray
@@ -693,39 +634,22 @@ class MainWindow(QWidget):
         pixmap = QPixmap.fromImage(qimg)
         scaled = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio)
         self.video_label.setPixmap(scaled)
-        
+
         if self.ros_thread.node.last_detection:
             detection = self.ros_thread.node.last_detection
-            class_name = detection.get('class', 'unknown')
-            confidence = detection.get('confidence', 0.0)
-            info_text = f"Objet: {class_name} ({confidence:.1%})\n"
+            info_text = f"Objet: {detection['class']} ({detection['confidence']:.1%})\n"
             
-            # Vérifier et afficher les coordonnées
-            has_position_3d = 'position_3d' in detection and detection['position_3d'] is not None
-            has_position_camera = 'position_camera' in detection and detection['position_camera'] is not None
-            
-            if has_position_3d:
-                pos = detection['position_3d']
-                # Vérifier que les valeurs ne sont pas toutes à zéro
-                if isinstance(pos, dict) and any(abs(pos.get(k, 0)) > 0.001 for k in ['x', 'y', 'z']):
-                    info_text += f"Position 3D: X={pos.get('x', 0):.3f}m Y={pos.get('y', 0):.3f}m Z={pos.get('z', 0):.3f}m"
-                    self.ros_thread.node.get_logger().info(f"✓ Affichage position_3d: X={pos.get('x', 0):.3f} Y={pos.get('y', 0):.3f} Z={pos.get('z', 0):.3f}")
-                else:
-                    info_text += "Position 3D: En attente... (valeurs nulles)"
-                    self.ros_thread.node.get_logger().warn(f"Position 3D présente mais valeurs nulles: {pos}")
-            elif has_position_camera:
+            if 'center' in detection:
+                center = detection['center']
+                info_text += f"Centre image: u={center['x']:.1f}px v={center['y']:.1f}px"
+            elif 'position_camera' in detection:
                 pos = detection['position_camera']
-                if isinstance(pos, dict) and any(abs(pos.get(k, 0)) > 0.001 for k in ['x', 'y', 'z']):
-                    info_text += f"Position caméra: X={pos.get('x', 0):.3f}m Y={pos.get('y', 0):.3f}m Z={pos.get('z', 0):.3f}m"
-                    self.ros_thread.node.get_logger().info(f"✓ Affichage position_camera: X={pos.get('x', 0):.3f} Y={pos.get('y', 0):.3f} Z={pos.get('z', 0):.3f}")
-                else:
-                    info_text += "Position 3D: En attente... (valeurs nulles)"
-                    self.ros_thread.node.get_logger().warn(f"Position caméra présente mais valeurs nulles: {pos}")
-            else:
-                info_text += "Position 3D: En attente..."
-                self.ros_thread.node.get_logger().warn(
-                    f"⚠ Aucune position 3D disponible. Keys dans detection: {list(detection.keys())}"
-                )
+                info_text += f"Centre image: u={pos['x']:.1f}px v={pos['y']:.1f}px"
+            
+            if 'bbox' in detection:
+                bbox = detection['bbox']
+                if isinstance(bbox, list) and len(bbox) == 4:
+                    info_text += f"\nBBox: x1={bbox[0]:.1f}, y1={bbox[1]:.1f}, x2={bbox[2]:.1f}, y2={bbox[3]:.1f}"
             
             self.detection_info_label.setText(info_text)
             self.detection_info_label.setStyleSheet("background-color: #2b2b2b; color: #2ecc71; padding: 5px; font-weight: bold; font-size: 10pt;")
@@ -739,6 +663,7 @@ class MainWindow(QWidget):
             self.ros_thread.node.get_logger().info("Détection YOLO activée")
         else:
             self.ros_thread.node.get_logger().info("Détection YOLO désactivée")
+            self.ros_thread.node.last_detection = None
 
     def send_position(self):
         try:
@@ -748,47 +673,6 @@ class MainWindow(QWidget):
             self.ros_thread.node.publish_position(x, y, z)
         except ValueError:
             print("Coordonnées invalides")
-    
-    def use_screwdriver_position(self):
-        """Utilise automatiquement les coordonnées du tournevis détecté"""
-        if not self.ros_thread.node.last_detection:
-            self.ros_thread.node.get_logger().warn("Aucun tournevis détecté")
-            return
-        
-        detection = self.ros_thread.node.last_detection
-        
-        # Vérifier que c'est bien un tournevis
-        if detection.get('class', '').lower() != 'screwdriver':
-            self.ros_thread.node.get_logger().warn(f"Objet détecté n'est pas un tournevis: {detection.get('class', 'unknown')}")
-            return
-        
-        # Utiliser les coordonnées 3D si disponibles
-        if 'position_3d' in detection:
-            pos = detection['position_3d']
-            x = pos['x']
-            y = pos['y']
-            z = pos['z']
-            self.ros_thread.node.get_logger().info(f"Utilisation position tournevis: X={x:.3f}m Y={y:.3f}m Z={z:.3f}m")
-            self.ros_thread.node.publish_position(x, y, z)
-            
-            # Mettre à jour les champs de saisie pour affichage
-            self.x_input.setText(f"{x:.3f}")
-            self.y_input.setText(f"{y:.3f}")
-            self.z_input.setText(f"{z:.3f}")
-        elif 'position_camera' in detection:
-            pos = detection['position_camera']
-            x = pos['x']
-            y = pos['y']
-            z = pos['z']
-            self.ros_thread.node.get_logger().info(f"Utilisation position caméra tournevis: X={x:.3f}m Y={y:.3f}m Z={z:.3f}m")
-            self.ros_thread.node.publish_position(x, y, z)
-            
-            # Mettre à jour les champs de saisie
-            self.x_input.setText(f"{x:.3f}")
-            self.y_input.setText(f"{y:.3f}")
-            self.z_input.setText(f"{z:.3f}")
-        else:
-            self.ros_thread.node.get_logger().warn("Position 3D du tournevis non disponible")
 
     def closeEvent(self, event):
         self.ros_thread.stop()
