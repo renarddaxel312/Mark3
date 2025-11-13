@@ -1,24 +1,28 @@
 # Python dependencies for Mark3
 # Note: ROS2 packages (rclpy, sensor_msgs, etc.) must be installed via apt-get
 
-# Numerical computing
-numpy>=1.21.0
+    # Numerical computing
+    numpy==1.26.4
 
 # Computer vision
-opencv-python>=4.5.0
+opencv-python==4.11.0.86
 
 # Qt GUI framework
-PySide6>=6.4.0
+PySide6==6.8.0
 
 # 3D visualization
-vtk>=9.2.0
+vtk==10.2.1
 
 # ROS2 Python bridge (if not installed via apt)
 # cv-bridge is typically installed via apt: ros-humble-cv-bridge
 
 # Object detection with YOLO
-ultralytics>=8.0.0
+ultralytics==8.3.50
 torch>=2.0.0
-torchvision>=0.15.0
-PyYAML>=6.0
+torchvision==0.21.0
+PyYAML==6.0.2
+
+# Voice recognition
+pyaudio==0.2.15
+SpeechRecognition==3.10.0
 

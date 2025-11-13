@@ -23,6 +23,9 @@ The system consists of several ROS2 nodes working together:
 - **state_publisher**: Publishes joint states and manages robot state
 - **urdf_reloader**: Dynamically reloads robot_state_publisher when configuration changes
 - **CameraNode**: Camera publisher for visual feedback
+- **ObjectDetectionNode**: YOLO-based object detection and 3D position estimation
+- **voice_command_node**: Voice command recognition and processing
+- **audio_capture_node**: Audio capture from microphone
 
 ## Prerequisites
 
@@ -35,6 +38,9 @@ The system consists of several ROS2 nodes working together:
 - NumPy
 - PyTorch (for YOLO object detection)
 - Ultralytics (for YOLO object detection)
+- PortAudio (for voice recognition)
+- PyAudio (for voice recognition)
+- SpeechRecognition (for voice recognition)
 
 ## Installation
 
@@ -54,8 +60,9 @@ sudo apt-get install -y \
     python3-pyside6 \
     python3-vtk \
     python3-opencv \
-    ros-humble-cv-bridge \
-    ros-humble-robot-state-publisher
+    ros-jazzy-cv-bridge \
+    ros-humble-robot-state-publisher \
+    portaudio19-dev
 ```
 
 3. Create and activate a Python virtual environment:
@@ -75,7 +82,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-   **Note**: ROS2 packages (rclpy, sensor_msgs, geometry_msgs, etc.) are installed via apt-get in step 2. The requirements.txt file contains additional Python packages that need to be installed in the virtual environment (e.g., ultralytics, torch for YOLO object detection).
+   **Note**: ROS2 packages (rclpy, sensor_msgs, geometry_msgs, etc.) are installed via apt-get in step 2. The requirements.txt file contains additional Python packages that need to be installed in the virtual environment (e.g., ultralytics, torch for YOLO object detection, pyaudio and SpeechRecognition for voice commands).
 
 5. Build the workspace (with virtual environment activated):
 ```bash
