@@ -57,8 +57,6 @@ sudo apt-get install -y \
     ros-jazzy-desktop \
     python3-pip \
     python3-venv \
-    python3-pyside6 \
-    python3-vtk \
     python3-opencv \
     ros-jazzy-cv-bridge \
     ros-jazzy-robot-state-publisher \
