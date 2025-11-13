@@ -54,14 +54,14 @@ cd Mark3
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-    ros-humble-desktop \
+    ros-jazzy-desktop \
     python3-pip \
     python3-venv \
     python3-pyside6 \
     python3-vtk \
     python3-opencv \
     ros-jazzy-cv-bridge \
-    ros-humble-robot-state-publisher \
+    ros-jazzy-robot-state-publisher \
     portaudio19-dev
 ```
 
