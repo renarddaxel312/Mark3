@@ -75,7 +75,7 @@ def generate_launch_description():
             'model_path': os.path.expanduser('~/Mark3_ws/model/tools_detection.pt'),
             'camera_frame': 'camera_frame',
             'base_frame': 'base_link',
-            'fixed_depth': 0.0
+            'fixed_depth': 0.30
         }],
         remappings=[]
     )

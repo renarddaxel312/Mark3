@@ -11,7 +11,12 @@ from rclpy.node import Node
 from ik_service_interface.srv import SolveIK
 from std_msgs.msg import String, Float32MultiArray
 from IKsolverNode.dh_utils import urdf, robot_dh
-from IKsolverNode.kinematics import inverse_kinematics_urdf, parse_urdf
+from IKsolverNode.kinematics import (
+    inverse_kinematics_urdf, 
+    parse_urdf, 
+    is_reachable, 
+    compute_reachability_intervals
+)
 from ament_index_python.packages import get_package_share_directory
 import json
 import time
@@ -31,6 +36,7 @@ class IKServiceServer(Node):
         self.q_init = None
         
         self.urdf_updated_pub = self.create_publisher(String, '/urdf_updated', 10)
+        self.reachability_intervals_pub = self.create_publisher(String, '/reachability/intervals', 10)
         
         self.config_sub = self.create_subscription(
             String,
@@ -98,6 +104,9 @@ class IKServiceServer(Node):
             self.get_logger().info(f'Configuration mise à jour: {joint_types}')
             self.get_logger().info(f'   Nombre de joints: {self.urdf_info["n_joints"]}')
             
+            # Calculer et publier les intervalles de reachability
+            self.publish_reachability_intervals()
+            
             time.sleep(0.1)
             msg = String()
             msg.data = URDF_PATH
@@ -106,6 +115,27 @@ class IKServiceServer(Node):
         except Exception as e:
             self.get_logger().error(f'Erreur lors de la mise à jour: {e}')
             self.config_ready = False
+    
+    def publish_reachability_intervals(self):
+        """Calcule et publie les intervalles de reachability sur le topic."""
+        if not self.config_ready or not hasattr(self, 'dh_config'):
+            return
+        
+        try:
+            intervals = compute_reachability_intervals(self.dh_config)
+            intervals_json = json.dumps(intervals)
+            
+            msg = String()
+            msg.data = intervals_json
+            self.reachability_intervals_pub.publish(msg)
+            
+            self.get_logger().info(
+                f"Intervalles reachability: X=[{intervals['x'][0]:.3f}, {intervals['x'][1]:.3f}], "
+                f"Y=[{intervals['y'][0]:.3f}, {intervals['y'][1]:.3f}], "
+                f"Z=[{intervals['z'][0]:.3f}, {intervals['z'][1]:.3f}]"
+            )
+        except Exception as e:
+            self.get_logger().error(f"Erreur calcul intervalles reachability: {e}")
     
     def solve_ik_callback(self, request, response):
         if not self.config_ready:
@@ -121,6 +151,20 @@ class IKServiceServer(Node):
                 request.target_position.y,
                 request.target_position.z
             ])
+            
+            # Vérifier la reachability avant de calculer l'IK
+            if not hasattr(self, 'dh_config') or not self.dh_config:
+                response.joint_angles = []
+                response.success = False
+                response.message = "Configuration DH non disponible"
+                return response
+            
+            if not is_reachable(self.dh_config, target_pos):
+                response.joint_angles = []
+                response.success = False
+                response.message = f"Position {target_pos} hors de portée (reachability)"
+                self.get_logger().warn(f'Position hors de portée: {target_pos}')
+                return response
             
             self.get_logger().info(f'Requête IK reçue: pos={target_pos}')
             

@@ -4,9 +4,156 @@ from IKsolverNode.dh_utils import dh_matrix
 import os
 
 
-def is_reachable(config, pos):
-    reach = sum(abs(j['a']) + abs(j['d']) for j in config)
-    return np.linalg.norm(pos) <= reach
+def compute_reachability_sphere(config):
+    """
+    Calcule la sphère de reachability du robot.
+    Retourne (center, radius) où center est le centre de la sphère et radius son rayon.
+    """
+    # Calculer la portée maximale (somme des longueurs des segments)
+    max_reach = sum(abs(j.get('a', 0)) + abs(j.get('d', 0)) for j in config)
+    
+    # Le centre est généralement à l'origine (base du robot)
+    # Mais on peut le décaler si nécessaire selon la configuration
+    center = np.array([0.0, 0.0, 0.0])
+    
+    # Ajuster le centre si le premier segment a un offset
+    if config and 'd' in config[0]:
+        center[2] = config[0].get('d', 0.0) * 0.5  # Décalage partiel selon d1
+    
+    return center, max_reach
+
+
+def get_default_exclusion_zones(config):
+    """
+    Retourne les zones d'exclusion par défaut pour éviter les auto-collisions.
+    Chaque zone est une sphère définie par {'center': [x, y, z], 'radius': r}
+    """
+    exclusion_zones = []
+    
+    # Zone 1: Base du robot (sphère autour de l'origine)
+    base_radius = 0.15  # Rayon de sécurité autour de la base (en mètres)
+    exclusion_zones.append({
+        'center': np.array([0.0, 0.0, 0.0]),
+        'radius': base_radius,
+        'name': 'base'
+    })
+    
+    # Zone 2: Espace sous la base (Z négatif)
+    # Permettre d'aller jusqu'à la hauteur de la base (-0.106 m)
+    # Cette zone bloque seulement vraiment en dessous de la base
+    exclusion_zones.append({
+        'center': np.array([0.0, 0.0, -0.15]),  # Plus bas que la base
+        'radius': 0.1,  # Rayon plus petit pour ne bloquer que vraiment en dessous
+        'name': 'below_base'
+    })
+    
+    # Zone 3: Zone de coude (si le robot a des segments)
+    if len(config) >= 3:
+        # Estimer la position du coude depuis la config
+        elbow_z = sum(config[i].get('d', 0.0) for i in range(min(2, len(config))))
+        elbow_radius = 0.1  # Rayon autour du coude
+        exclusion_zones.append({
+            'center': np.array([0.0, 0.0, elbow_z]),
+            'radius': elbow_radius,
+            'name': 'elbow_zone'
+        })
+    
+    return exclusion_zones
+
+
+def is_reachable(config, pos, exclusion_zones=None, sphere_center=None, sphere_radius=None):
+    """
+    Vérifie si une position (x, y, z) est accessible par le robot.
+    
+    Args:
+        config: Configuration du robot (liste de dict avec 'a' et 'd')
+        pos: Position cible [x, y, z] en mètres
+        exclusion_zones: Liste optionnelle de zones d'exclusion. 
+                        Si None, utilise les zones par défaut.
+                        Chaque zone est {'center': [x, y, z], 'radius': r}
+        sphere_center: Centre de la sphère de reachability (optionnel, calculé si None)
+        sphere_radius: Rayon de la sphère de reachability (optionnel, calculé si None)
+    
+    Returns:
+        bool: True si la position est accessible, False sinon
+    """
+    pos = np.array(pos)
+    
+    # 1. Calculer la sphère de reachability si non fournie
+    if sphere_center is None or sphere_radius is None:
+        sphere_center, sphere_radius = compute_reachability_sphere(config)
+    
+    # 2. Vérifier si le point est dans la sphère principale
+    dist_from_center = np.linalg.norm(pos - sphere_center)
+    if dist_from_center > sphere_radius:
+        return False
+    
+    # 3. Vérifier les zones d'exclusion (auto-collision)
+    if exclusion_zones is None:
+        exclusion_zones = get_default_exclusion_zones(config)
+    
+    for zone in exclusion_zones:
+        zone_center = np.array(zone['center'])
+        zone_radius = zone['radius']
+        dist_to_zone = np.linalg.norm(pos - zone_center)
+        
+        if dist_to_zone < zone_radius:
+            return False  # Point dans une zone d'exclusion
+    
+    return True
+
+
+def compute_reachability_intervals(config, exclusion_zones=None, sphere_center=None, sphere_radius=None):
+    """
+    Calcule les intervalles min/max pour X, Y, Z en fonction de la reachability.
+    
+    Args:
+        config: Configuration du robot
+        exclusion_zones: Zones d'exclusion (optionnel)
+        sphere_center: Centre de la sphère (optionnel)
+        sphere_radius: Rayon de la sphère (optionnel)
+    
+    Returns:
+        dict: {'x': (min, max), 'y': (min, max), 'z': (min, max)}
+    """
+    if sphere_center is None or sphere_radius is None:
+        sphere_center, sphere_radius = compute_reachability_sphere(config)
+    
+    if exclusion_zones is None:
+        exclusion_zones = get_default_exclusion_zones(config)
+    
+    # Initialiser avec les limites de la sphère principale
+    x_min = sphere_center[0] - sphere_radius
+    x_max = sphere_center[0] + sphere_radius
+    y_min = sphere_center[1] - sphere_radius
+    y_max = sphere_center[1] + sphere_radius
+    z_min = sphere_center[2] - sphere_radius
+    z_max = sphere_center[2] + sphere_radius
+    
+    # Ajuster selon les zones d'exclusion
+    # Pour chaque zone, on exclut l'espace qu'elle occupe
+    for zone in exclusion_zones:
+        zone_center = np.array(zone['center'])
+        zone_radius = zone['radius']
+        
+        # Si la zone est proche des limites, ajuster les intervalles
+        # Zone de base : ne pas bloquer complètement, juste éviter les collisions directes
+        if zone['name'] == 'base':
+            # La zone de base n'empêche pas d'aller légèrement en dessous
+            pass
+        elif zone['name'] == 'below_base':
+            # Bloquer seulement vraiment en dessous de la base
+            z_min = max(z_min, zone_center[2] + zone_radius)
+    
+    # Fixer z_min à la hauteur de la base (-0.106 m)
+    base_height = -0.106
+    z_min = base_height
+    
+    return {
+        'x': (float(x_min), float(x_max)),
+        'y': (float(y_min), float(y_max)),
+        'z': (float(z_min), float(z_max))
+    }
 
 
 def parse_urdf(urdf_path_or_string):
