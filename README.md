@@ -60,7 +60,8 @@ sudo apt-get install -y \
     python3-opencv \
     ros-jazzy-cv-bridge \
     ros-jazzy-robot-state-publisher \
-    portaudio19-dev
+    portaudio19-dev \
+    python3-pyaudio \
 ```
 
 3. Create and activate a Python virtual environment:
