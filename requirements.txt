@@ -26,3 +26,6 @@ PyYAML==6.0.1
 pyaudio==0.2.13
 SpeechRecognition==3.14.3
 
+empy
+catkin_pkg
+lark
