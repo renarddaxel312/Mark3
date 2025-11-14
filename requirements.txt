@@ -16,13 +16,21 @@ vtk==9.5.2
 # ROS2 Python bridge (if not installed via apt)
 # cv-bridge is typically installed via apt: ros-humble-cv-bridge
 
+# ROS2 build tools
+empy  # Template engine required by rosidl_adapter (DO NOT install 'em' package - it conflicts!)
+catkin_pkg  # Required for parsing package.xml files during ROS2 build
+lark  # Parser library required by rosidl_parser for parsing IDL files
+
 # Object detection with YOLO
 ultralytics==8.3.226
-torch==2.7.1+cu118
-torchvision==0.22.1+cu118
+torch==2.7.1
+torchvision==0.22.1
 PyYAML==6.0.1
 
 # Voice recognition
-pyaudio==0.2.13
+# NOTE: PyAudio peut nécessiter l'installation de portaudio19-dev via apt-get
+# Si l'installation échoue avec Python 3.12, voir INSTALL_PYAUDIO.md
+# pyaudio==0.2.13  # Version ancienne, peut ne pas fonctionner avec Python 3.12
+pyaudio  # Sans version spécifique pour permettre pip de trouver une version compatible
 SpeechRecognition==3.14.3
 

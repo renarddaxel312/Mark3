@@ -328,17 +328,32 @@ class RosThread(QThread):
             pass
 
     def run(self):
-
-        while rclpy.ok() and self.running:
-            rclpy.spin_once(self.node, timeout_sec=0.05)
-            if self.node.image is not None:
-                self.new_image.emit(self.node.image)
+        try:
+            while rclpy.ok() and self.running:
+                rclpy.spin_once(self.node, timeout_sec=0.05)
+                if self.node.image is not None:
+                    self.new_image.emit(self.node.image)
+        except Exception as e:
+            print(f"Erreur dans RosThread.run(): {e}")
+        finally:
+            # Nettoyage propre dans le thread (doit être fait dans le même thread que rclpy.init())
+            try:
+                if hasattr(self, 'node') and self.node is not None:
+                    self.node.destroy_node()
+                if rclpy.ok():
+                    rclpy.shutdown()
+            except Exception as e:
+                print(f"Erreur lors du nettoyage ROS2: {e}")
 
     def stop(self):
+        """Arrête le thread ROS2 de manière propre."""
         self.running = False
-        self.node.destroy_node()
-        rclpy.shutdown()
-        self.quit()
+        # Attendre que le thread se termine (avec timeout)
+        if self.isRunning():
+            if not self.wait(3000):  # Attendre jusqu'à 3 secondes
+                print("Avertissement: Le thread ROS2 n'a pas terminé dans les temps")
+                self.terminate()  # Forcer l'arrêt si nécessaire
+                self.wait(1000)  # Attendre encore un peu après terminate
 
 
 class AxeWidget(QWidget):
@@ -385,6 +400,7 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("Configuration du robot modulaire")
         self.resize(1280, 720)
+        self._closing = False  # Flag pour indiquer que la fenêtre est en train de se fermer
         
         self.urdf_reload_signal.connect(self.reload_urdf_slot)
 
@@ -685,13 +701,9 @@ class MainWindow(QWidget):
         sys.stdout = self.console_writer_stdout
         sys.stderr = self.console_writer_stderr
 
-        self.ros_thread = RosThread()
-        self.ros_thread.new_image.connect(self.update_image)
-        self.ros_thread.log_message.connect(self.append_to_console)  # Connecter les logs à la console
-        self.ros_thread.start()
-        
-        self.ros_thread.node.urdf_update_callback = self.on_urdf_updated
-        self.ros_thread.node.set_voice_commands_enabled(False)
+        # Initialiser le thread ROS2 après que la fenêtre soit complètement créée
+        # Utiliser QTimer pour différer l'initialisation et éviter les problèmes de timing X11
+        QTimer.singleShot(100, self.initialize_ros_thread)
         
         try:
             urdf_path = os.path.join(
@@ -702,6 +714,30 @@ class MainWindow(QWidget):
         except Exception as e:
             print(f"Impossible de charger l'URDF: {e}")
     
+    def initialize_ros_thread(self):
+        """Initialise le thread ROS2 après que la fenêtre soit complètement créée."""
+        try:
+            self.ros_thread = RosThread()
+            self.ros_thread.new_image.connect(self.update_image)
+            self.ros_thread.log_message.connect(self.append_to_console)  # Connecter les logs à la console
+            
+            # Attendre un peu avant de démarrer pour s'assurer que Qt est prêt
+            QTimer.singleShot(50, lambda: self.ros_thread.start())
+            
+            # Configurer les callbacks après le démarrage
+            QTimer.singleShot(150, self.setup_ros_callbacks)
+        except Exception as e:
+            print(f"Erreur lors de l'initialisation du thread ROS: {e}")
+    
+    def setup_ros_callbacks(self):
+        """Configure les callbacks ROS2 après que le thread soit démarré."""
+        try:
+            if hasattr(self, 'ros_thread') and self.ros_thread:
+                self.ros_thread.node.urdf_update_callback = self.on_urdf_updated
+                self.ros_thread.node.set_voice_commands_enabled(False)
+        except Exception as e:
+            print(f"Erreur lors de la configuration des callbacks ROS: {e}")
+    
     def on_urdf_updated(self, urdf_path):
         self.urdf_reload_signal.emit(urdf_path)
     
@@ -709,13 +745,24 @@ class MainWindow(QWidget):
         self.robot_viewer.set_urdf_path(urdf_path)
     
     def update_3d_view(self):
-        if self.ros_thread.node.joint_states is not None:
-            joint_states = self.ros_thread.node.joint_states
-            q_deg = [np.rad2deg(pos) for pos in joint_states.position]
-            self.robot_viewer.update_joints(q_deg)
-        
-        # Mettre à jour les intervalles de reachability
-        self.update_reachability_intervals_display()
+        # Ignorer les mises à jour si la fenêtre est en train de se fermer
+        if self._closing:
+            return
+        # Vérifier que le viewer existe encore
+        if not hasattr(self, 'robot_viewer') or self.robot_viewer is None:
+            return
+        try:
+            if self.ros_thread.node.joint_states is not None:
+                joint_states = self.ros_thread.node.joint_states
+                q_deg = [np.rad2deg(pos) for pos in joint_states.position]
+                self.robot_viewer.update_joints(q_deg)
+            
+            # Mettre à jour les intervalles de reachability
+            self.update_reachability_intervals_display()
+        except Exception as e:
+            # Ignorer les erreurs si la fenêtre est en train d'être fermée
+            if hasattr(self, 'ros_thread') and self.ros_thread and self.ros_thread.running:
+                print(f"Erreur lors de la mise à jour de la vue 3D: {e}")
     
     def update_reachability_intervals_display(self):
         """Met à jour l'affichage des intervalles de reachability."""
@@ -844,51 +891,62 @@ class MainWindow(QWidget):
         self.scroll_layout.addWidget(separator)
 
     def update_image(self, cv_img):
-        rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qimg)
-        scaled = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio)
-        self.video_label.setPixmap(scaled)
+        # Ignorer les mises à jour si la fenêtre est en train de se fermer
+        if self._closing:
+            return
+        # Vérifier que la fenêtre existe encore avant de mettre à jour
+        if not hasattr(self, 'video_label') or self.video_label is None:
+            return
+        try:
+            rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            bytes_per_line = ch * w
+            qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimg)
+            scaled = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio)
+            self.video_label.setPixmap(scaled)
 
-        if self.ros_thread.node.last_detection:
-            detection = self.ros_thread.node.last_detection
-            info_text = f"Objet: {detection['class']} ({detection['confidence']:.1%})\n"
-            
-            if 'center' in detection:
-                center = detection['center']
-                info_text += f"Centre image: u={center['x']:.1f}px v={center['y']:.1f}px"
-            
-            if 'bbox' in detection:
-                bbox = detection['bbox']
-                if isinstance(bbox, list) and len(bbox) == 4:
-                    info_text += f"\nBBox: x1={bbox[0]:.1f}, y1={bbox[1]:.1f}, x2={bbox[2]:.1f}, y2={bbox[3]:.1f}"
+            if self.ros_thread.node.last_detection:
+                detection = self.ros_thread.node.last_detection
+                info_text = f"Objet: {detection['class']} ({detection['confidence']:.1%})\n"
+                
+                if 'center' in detection:
+                    center = detection['center']
+                    info_text += f"Centre image: u={center['x']:.1f}px v={center['y']:.1f}px"
+                
+                if 'bbox' in detection:
+                    bbox = detection['bbox']
+                    if isinstance(bbox, list) and len(bbox) == 4:
+                        info_text += f"\nBBox: x1={bbox[0]:.1f}, y1={bbox[1]:.1f}, x2={bbox[2]:.1f}, y2={bbox[3]:.1f}"
 
-            if 'position_base' in detection:
-                pos_base = detection['position_base']
-                info_text += (
-                    f"\nPosition base: X={pos_base['x']:.3f} m "
-                    f"Y={pos_base['y']:.3f} m Z={pos_base['z']:.3f} m"
-                )
-            elif 'position_3d' in detection:
-                pos_3d = detection['position_3d']
-                info_text += (
-                    f"\nPosition 3D: X={pos_3d['x']:.3f} m "
-                    f"Y={pos_3d['y']:.3f} m Z={pos_3d['z']:.3f} m"
-                )
-            elif 'position_camera_m' in detection:
-                pos_cam = detection['position_camera_m']
-                info_text += (
-                    f"\nPosition caméra: X={pos_cam['x']:.3f} m "
-                    f"Y={pos_cam['y']:.3f} m Z={pos_cam['z']:.3f} m"
-                )
-            
-            self.detection_info_label.setText(info_text)
-            self.detection_info_label.setStyleSheet("background-color: #2b2b2b; color: #2ecc71; padding: 5px; font-weight: bold; font-size: 10pt;")
-        else:
-            self.detection_info_label.setText("Aucune détection")
-            self.detection_info_label.setStyleSheet("background-color: #2b2b2b; color: #888; padding: 5px; font-weight: bold; font-size: 10pt;")
+                if 'position_base' in detection:
+                    pos_base = detection['position_base']
+                    info_text += (
+                        f"\nPosition base: X={pos_base['x']:.3f} m "
+                        f"Y={pos_base['y']:.3f} m Z={pos_base['z']:.3f} m"
+                    )
+                elif 'position_3d' in detection:
+                    pos_3d = detection['position_3d']
+                    info_text += (
+                        f"\nPosition 3D: X={pos_3d['x']:.3f} m "
+                        f"Y={pos_3d['y']:.3f} m Z={pos_3d['z']:.3f} m"
+                    )
+                elif 'position_camera_m' in detection:
+                    pos_cam = detection['position_camera_m']
+                    info_text += (
+                        f"\nPosition caméra: X={pos_cam['x']:.3f} m "
+                        f"Y={pos_cam['y']:.3f} m Z={pos_cam['z']:.3f} m"
+                    )
+                
+                self.detection_info_label.setText(info_text)
+                self.detection_info_label.setStyleSheet("background-color: #2b2b2b; color: #2ecc71; padding: 5px; font-weight: bold; font-size: 10pt;")
+            else:
+                self.detection_info_label.setText("Aucune détection")
+                self.detection_info_label.setStyleSheet("background-color: #2b2b2b; color: #888; padding: 5px; font-weight: bold; font-size: 10pt;")
+        except Exception as e:
+            # Ignorer les erreurs si la fenêtre est en train d'être fermée
+            if hasattr(self, 'ros_thread') and self.ros_thread and self.ros_thread.running:
+                print(f"Erreur lors de la mise à jour de l'image: {e}")
     
     def toggle_detection(self, state):
         self.ros_thread.node.detection_enabled = (state == Qt.CheckState.Checked.value)
@@ -948,21 +1006,103 @@ class MainWindow(QWidget):
         scrollbar.setValue(scrollbar.maximum())
     
     def closeEvent(self, event):
-        # Restaurer stdout/stderr
+        """Gère la fermeture propre de la fenêtre."""
+        # Marquer que la fenêtre est en train de se fermer
+        self._closing = True
+        
+        # Traiter les événements en attente pour éviter les race conditions
+        app = QApplication.instance()
+        if app:
+            app.processEvents()
+        
+        # 1. Arrêter le timer de visualisation 3D en premier
+        try:
+            if hasattr(self, 'viz_timer'):
+                self.viz_timer.stop()
+                self.viz_timer = None
+        except Exception:
+            pass
+        
+        # Traiter les événements après l'arrêt du timer
+        if app:
+            app.processEvents()
+        
+        # 2. Nettoyer le viewer VTK avant de fermer les threads
+        try:
+            if hasattr(self, 'robot_viewer') and self.robot_viewer:
+                self.robot_viewer.cleanup()
+                self.robot_viewer = None
+        except Exception as e:
+            print(f"Erreur lors du nettoyage du viewer 3D: {e}")
+        
+        # Délai pour permettre à VTK de finaliser proprement (important pour Wayland/X11)
+        if app:
+            app.processEvents()
+            # Petit délai synchrone pour permettre à VTK de finaliser
+            import time
+            time.sleep(0.05)  # 50ms de délai
+            app.processEvents()
+        
+        # 3. Déconnecter les signaux Qt pour éviter les callbacks après fermeture
+        try:
+            if hasattr(self, 'ros_thread') and self.ros_thread is not None:
+                # Déconnecter tous les signaux
+                try:
+                    self.ros_thread.new_image.disconnect()
+                except Exception:
+                    pass
+                try:
+                    self.ros_thread.log_message.disconnect()
+                except Exception:
+                    pass
+                # Arrêter le thread proprement
+                self.ros_thread.stop()
+                self.ros_thread = None
+        except Exception as e:
+            print(f"Erreur lors de l'arrêt du thread ROS: {e}")
+        
+        # Traiter les événements après l'arrêt du thread
+        if app:
+            app.processEvents()
+        
+        # 4. Restaurer stdout/stderr
         import sys
-        if hasattr(self, 'original_stdout'):
-            sys.stdout = self.original_stdout
-        else:
+        try:
+            if hasattr(self, 'original_stdout'):
+                sys.stdout = self.original_stdout
+            else:
+                sys.stdout = sys.__stdout__
+        except Exception:
             sys.stdout = sys.__stdout__
-        if hasattr(self, 'original_stderr'):
-            sys.stderr = self.original_stderr
-        else:
+        
+        try:
+            if hasattr(self, 'original_stderr'):
+                sys.stderr = self.original_stderr
+            else:
+                sys.stderr = sys.__stderr__
+        except Exception:
             sys.stderr = sys.__stderr__
         
-        self.ros_thread.stop()
-        super().closeEvent(event)
+        # Traiter une dernière fois les événements avant de fermer
+        if app:
+            app.processEvents()
+        
+        # 5. Accepter l'événement de fermeture
+        event.accept()
+        
+        # 6. Appeler le closeEvent du parent en dernier
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
 
 def main(args=None):
+    # Forcer Qt à utiliser X11 au lieu de Wayland si disponible
+    # Cela peut aider à éviter les problèmes de timing avec VTK
+    if 'QT_QPA_PLATFORM' not in os.environ:
+        # Essayer X11 d'abord, puis fallback sur le défaut
+        os.environ['QT_QPA_PLATFORM'] = 'xcb'
+    
     app = QApplication(sys.argv)
 
     dark_stylesheet = """

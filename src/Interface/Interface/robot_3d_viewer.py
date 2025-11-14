@@ -471,3 +471,61 @@ class Robot3DViewer(QWidget):
     
     def update_joints(self, q_deg):
         self.update_view(q_deg)
+    
+    def cleanup(self):
+        """Nettoie les ressources VTK avant la destruction du widget."""
+        try:
+            # Désactiver l'interactor en premier pour éviter les événements
+            if hasattr(self, 'interactor') and self.interactor:
+                try:
+                    # Désactiver les événements de l'interactor
+                    self.interactor.Disable()
+                    self.interactor.ExitCallback()
+                    # Attendre un peu pour que les événements soient traités
+                    import time
+                    time.sleep(0.01)
+                    self.interactor.TerminateApp()
+                except Exception:
+                    pass
+            
+            # Nettoyer les actors
+            if hasattr(self, 'actors'):
+                for actor in self.actors:
+                    try:
+                        if hasattr(self, 'renderer') and self.renderer:
+                            self.renderer.RemoveActor(actor)
+                    except Exception:
+                        pass
+                self.actors = []
+            
+            # Nettoyer le renderer
+            if hasattr(self, 'renderer') and self.renderer:
+                try:
+                    self.renderer.RemoveAllViewProps()
+                    self.renderer.RemoveAllLights()
+                except Exception:
+                    pass
+            
+            # Arrêter le rendu et finaliser la fenêtre
+            if hasattr(self, 'vtk_widget') and self.vtk_widget:
+                try:
+                    render_window = self.vtk_widget.GetRenderWindow()
+                    if render_window:
+                        # Retirer le renderer avant de finaliser
+                        if hasattr(self, 'renderer') and self.renderer:
+                            render_window.RemoveRenderer(self.renderer)
+                        render_window.Finalize()
+                except Exception:
+                    pass
+            
+            # Supprimer le widget du layout si possible
+            try:
+                if self.parent() and hasattr(self.parent(), 'layout'):
+                    layout = self.parent().layout()
+                    if layout:
+                        layout.removeWidget(self.vtk_widget)
+            except Exception:
+                pass
+                
+        except Exception as e:
+            print(f"Erreur lors du nettoyage VTK: {e}")
