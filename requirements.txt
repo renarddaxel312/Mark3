@@ -34,3 +34,6 @@ PyYAML==6.0.1
 pyaudio  # Sans version spécifique pour permettre pip de trouver une version compatible
 SpeechRecognition==3.14.3
 
+empy
+catkin_pkg
+lark
