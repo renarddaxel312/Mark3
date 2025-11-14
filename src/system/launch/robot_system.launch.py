@@ -71,8 +71,8 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True,
         parameters=[{
-            'calibration_file': os.path.expanduser('~/Mark3_ws/config/camera_calibration.yaml'),
-            'model_path': os.path.expanduser('~/Mark3_ws/model/tools_detection.pt'),
+            'calibration_file': os.path.expanduser('~/Mark3/config/camera_calibration.yaml'),
+            'model_path': os.path.expanduser('~/Mark3/model/tools_detection.pt'),
             'camera_frame': 'camera_frame',
             'base_frame': 'base_link',
             'fixed_depth': 0.30
@@ -88,7 +88,7 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True,
         parameters=[{
-            'yolo_model': os.path.expanduser('~/Mark3_ws/model/tools_detection.pt')
+            'yolo_model': os.path.expanduser('~/Mark3/model/tools_detection.pt')
         }],
         remappings=[]
     )
