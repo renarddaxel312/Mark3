@@ -1,6 +1,6 @@
 import numpy as np
 import os
-from ament_index_python.packages import get_package_share_directory
+ 
 
 def robot_dh(joint_types, effector_type):
     config = []

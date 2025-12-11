@@ -1,0 +1,11 @@
+{
+  "input_dim": 17,
+  "output_dim": 7,
+  "hidden": [
+    512,
+    512
+  ],
+  "val_loss": 0.2504236277964663,
+  "train_loss": 0.24524524072829168,
+  "best_epoch": 21
+}

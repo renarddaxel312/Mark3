@@ -329,9 +329,18 @@ def forward_kinematics_urdf(urdf_info, q, return_points=False, return_full_pose=
         return T[:3, 3]
 
 
-def inverse_kinematics_urdf(urdf_path_or_string, target_pos, target_rpy=None, q_init=None, 
-                           max_iter=1000, lr=0.5, tol=1e-4, n_restarts=2, 
-                           orientation_weight=0.1):
+def inverse_kinematics_urdf(
+    urdf_path_or_string,
+    target_pos,
+    target_rpy=None,
+    q_init=None,
+    max_iter=1000,
+    lr=0.5,
+    tol=1e-4,
+    n_restarts=2,
+    orientation_weight=0.1,
+    return_stats: bool = False,
+):
     urdf_info = parse_urdf(urdf_path_or_string)
     n = urdf_info['n_joints']
     target_pos = np.array(target_pos)
@@ -342,6 +351,15 @@ def inverse_kinematics_urdf(urdf_path_or_string, target_pos, target_rpy=None, q_
         target_R = xyz_rpy_to_matrix(np.zeros(3), target_rpy)[:3, :3]
     
     best_q, best_err = None, np.inf
+    best_stats = {
+        "converged": False,
+        "iterations": None,
+        "restart": None,
+        "best_err": None,
+        "best_err_pos": None,
+        "best_err_orient": None,
+        "use_orientation": bool(use_orientation),
+    }
     
     def clamp_angles(q):
         q_clamped = q.copy()
@@ -404,7 +422,19 @@ def inverse_kinematics_urdf(urdf_path_or_string, target_pos, target_rpy=None, q_
                         print(f"IK convergée en {iteration} itérations (pos: {err_pos_norm:.6f}m, orient: {err_orient_norm:.4f}rad)")
                     else:
                         print(f"IK convergée en {iteration} itérations (err: {err_norm:.6f}m)")
-                return clamp_angles(q)
+                q_out = clamp_angles(q)
+                if return_stats:
+                    stats = {
+                        "converged": True,
+                        "iterations": int(iteration + 1),
+                        "restart": int(restart),
+                        "best_err": float(err_norm),
+                        "best_err_pos": float(err_pos_norm),
+                        "best_err_orient": float(err_orient_norm) if use_orientation else None,
+                        "use_orientation": bool(use_orientation),
+                    }
+                    return q_out, stats
+                return q_out
             
             if use_orientation:
                 J = np.zeros((6, n))
@@ -454,9 +484,28 @@ def inverse_kinematics_urdf(urdf_path_or_string, target_pos, target_rpy=None, q_
             
             prev_err = err_norm
         
-        if err_norm < best_err:
+        # Track best from this restart (if loop broke early, err_norm might not exist)
+        try:
+            last_err_norm = err_norm
+            last_err_pos = err_pos_norm
+            last_err_orient = err_orient_norm if use_orientation else None
+        except UnboundLocalError:
+            last_err_norm = np.inf
+            last_err_pos = np.inf
+            last_err_orient = None
+
+        if last_err_norm < best_err:
             best_q = q.copy()
-            best_err = err_norm
+            best_err = last_err_norm
+            best_stats = {
+                "converged": False,
+                "iterations": int(max_iter),
+                "restart": int(restart),
+                "best_err": float(best_err),
+                "best_err_pos": float(last_err_pos) if np.isfinite(last_err_pos) else None,
+                "best_err_orient": float(last_err_orient) if (use_orientation and last_err_orient is not None) else None,
+                "use_orientation": bool(use_orientation),
+            }
     
     if best_err >= tol:
         if use_orientation:
@@ -469,4 +518,7 @@ def inverse_kinematics_urdf(urdf_path_or_string, target_pos, target_rpy=None, q_
         else:
             print(f"IK URDF convergée (err: {best_err:.6f}m)")
     
-    return clamp_angles(best_q if best_q is not None else np.zeros(n))
+    q_out = clamp_angles(best_q if best_q is not None else np.zeros(n))
+    if return_stats:
+        return q_out, best_stats
+    return q_out

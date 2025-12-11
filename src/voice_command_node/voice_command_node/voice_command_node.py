@@ -48,14 +48,14 @@ class VoiceCommandNode(Node):
         # Sub
         self.create_subscription(Float32, '/audio/amplitude', self.amp_callback, 10)
         self.create_subscription(AudioData, '/audio/raw', self.raw_callback, 10)
-        self.config_subscription = self.create_subscription(    
+        self.config_subscription = self.create_subscription(
             String,
             '/config/axis',
             self.config_callback,
             10
         )
         self.create_subscription(Bool, '/voice/commands_enabled', self.mode_callback, 10)
-       
+        
         # Clients
         self.ik_client = self.create_client(SolveIK, 'solve_ik')
         self.object_detection_client = self.create_client(DetectObject3D, 'detect_object_3d')
@@ -80,8 +80,6 @@ class VoiceCommandNode(Node):
                 return    
             self.n_joints = len(joint_types)
             self.joint_names = [f'joint_{i}' for i in range(self.n_joints)]
-
-
         except Exception as e:
             self.get_logger().error(f'Erreur config: {e}')
 
@@ -97,7 +95,7 @@ class VoiceCommandNode(Node):
     def amp_callback(self, msg: Float32):
         if self.listening and self.voice_mode:
             amp = msg.data
-           
+            
             if amp > self.threshold:
                 if not self.recording:
                     self.get_logger().info(f"[VOICE] Début enregistrement audio (amplitude {amp:.1f} > seuil {self.threshold})")
@@ -164,7 +162,7 @@ class VoiceCommandNode(Node):
         msg.data = [0.0] * self.n_joints
         self.angles_pub.publish(msg)
         self.get_logger().info(f'[VOICE] Position initiale publiée: {self.n_joints} joints à 0.0 rad sur /pos/angles')
-   
+    
     # Commande : Va en X Y Z
     def handle_go_to_position(self, command: str):
         try:
@@ -184,10 +182,6 @@ class VoiceCommandNode(Node):
         try:
             # Tournevis
             if "tournevis" in command or "screwdriver" in command or "outil" in command:
-               
-                # A FINIRRRRRRRRRRRR
-
-
                 self.get_logger().info(f"[VOICE] Recherche de l'objet: tournevis")
                 object_name = "screwdriver"
 

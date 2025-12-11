@@ -11,6 +11,7 @@ from rclpy.node import Node
 from ik_service_interface.srv import SolveIK
 from std_msgs.msg import String, Float32MultiArray
 from IKsolverNode.dh_utils import urdf, robot_dh
+from IKsolverNode.mlp_initializer import predict_q_init_deg
 from IKsolverNode.kinematics import (
     inverse_kinematics_urdf, 
     parse_urdf, 
@@ -34,6 +35,12 @@ class IKServiceServer(Node):
         self.joint_types = initial_joint_types
         self.config_ready = False
         self.q_init = None
+
+        # MLP init params (keeps external ROS interfaces unchanged)
+        self.use_mlp_init = self.declare_parameter("use_mlp_init", True).value
+        self.mlp_device = self.declare_parameter("mlp_device", "cpu").value
+        self.mlp_model_path = self.declare_parameter("mlp_model_path", "").value
+        self.mlp_model_meta_path = self.declare_parameter("mlp_model_meta_path", "").value
         
         self.urdf_updated_pub = self.create_publisher(String, '/urdf_updated', 10)
         self.reachability_intervals_pub = self.create_publisher(String, '/reachability/intervals', 10)
@@ -167,6 +174,35 @@ class IKServiceServer(Node):
                 return response
             
             self.get_logger().info(f'Requête IK reçue: pos={target_pos}')
+
+            # Compute MLP-based q_init (degrees) if enabled; fall back to last /pos/angles if unavailable.
+            q_init_to_use = self.q_init
+            mlp_time_s = None
+            if self.use_mlp_init:
+                try:
+                    pkg_share = get_package_share_directory("IKsolverNode")
+                    model_path = self.mlp_model_path or os.path.join(pkg_share, "mlp", "mlp_initializer.pt")
+                    meta_path = self.mlp_model_meta_path or os.path.join(pkg_share, "mlp", "mlp_initializer.pt.meta.json")
+                    if not os.path.isfile(meta_path):
+                        meta_path = None
+
+                    t_mlp0 = time.time()
+                    q_init_mlp = predict_q_init_deg(
+                        target_xyz_m=target_pos.tolist(),
+                        joint_types=self.joint_types,
+                        joint_limits_rad=self.urdf_info["joint_limits"],
+                        model_path=model_path,
+                        device=self.mlp_device,
+                        meta_path=meta_path,
+                    )
+                    mlp_time_s = time.time() - t_mlp0
+                    q_init_to_use = q_init_mlp
+                    self.get_logger().info(
+                        f"MLP init utilisée (dof={len(q_init_mlp)}), temps={mlp_time_s*1000.0:.1f}ms, "
+                        f"q_init(deg)={np.round(q_init_mlp, 2).tolist()}"
+                    )
+                except Exception as e:
+                    self.get_logger().warn(f"MLP init indisponible, fallback sur /pos/angles: {e}")
             
             if request.use_orientation:
                 target_rpy = np.array([
@@ -178,20 +214,35 @@ class IKServiceServer(Node):
             else:
                 target_rpy = None
                 
-            q_solution = inverse_kinematics_urdf(
+            t_ik0 = time.time()
+            q_solution, ik_stats = inverse_kinematics_urdf(
                 URDF_PATH,
                 target_pos=target_pos,
                 target_rpy=target_rpy,
-                q_init=self.q_init,
+                q_init=q_init_to_use,
                 max_iter=2000,
-                lr=0.3
+                lr=0.3,
+                return_stats=True,
             )
+            ik_time_s = time.time() - t_ik0
             
             response.joint_angles = q_solution.tolist()
             response.success = True
-            response.message = f"IK résolue avec succès. {len(q_solution)} angles calculés."
+            if mlp_time_s is not None:
+                response.message = (
+                    f"IK résolue avec succès. {len(q_solution)} angles calculés. "
+                    f"(MLP {mlp_time_s*1000.0:.1f}ms + IK {ik_time_s*1000.0:.1f}ms)"
+                )
+            else:
+                response.message = f"IK résolue avec succès. {len(q_solution)} angles calculés. (IK {ik_time_s*1000.0:.1f}ms)"
             
             self.get_logger().info(f'Solution trouvée: {np.round(q_solution, 2).tolist()}')
+            iters = ik_stats.get("iterations") if isinstance(ik_stats, dict) else None
+            restart_idx = ik_stats.get("restart") if isinstance(ik_stats, dict) else None
+            best_err = ik_stats.get("best_err") if isinstance(ik_stats, dict) else None
+            self.get_logger().info(
+                f"IK solve: temps={ik_time_s*1000.0:.1f}ms, itérations={iters}, restart={restart_idx}, best_err={best_err}"
+            )
             
         except Exception as e:
             response.joint_angles = []

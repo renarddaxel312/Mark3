@@ -13,15 +13,14 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'urdf/meshes'), glob('urdf/meshes/*.stl')),
+        (os.path.join('share', package_name, 'mlp'), glob('mlp/*')),
     ],
-    install_requires=['rclpy',
-                'sensor_msgs',
-                'os',
-                'numpy',
-                'std_msgs',
-                'dh_utils',
-                'kinematics',
-                ],
+    # NOTE: ROS dependencies (rclpy, std_msgs, sensor_msgs, etc.) are provided by the ROS environment.
+    # Keep only true pip dependencies here.
+    install_requires=[
+        'numpy',
+        'torch',
+    ],
     zip_safe=True,
     maintainer='axel',
     maintainer_email='axel@todo.todo',

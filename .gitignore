@@ -57,8 +57,9 @@ coverage.xml
 # pytest
 .pytest_cache/
 
-DEBUG_TROUBLESHOOTING.md
-TROUBLESHOOTING_X11.md
-yolov8n.pt
-
+# Large / local-only artifacts (avoid accidentally committing)
+DEMO.mp4
+Segmentation/
+ML_project -*/
+*.npz
 
