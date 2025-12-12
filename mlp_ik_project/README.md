@@ -26,11 +26,7 @@ This generates `mlp/ik_dataset.npz` and `mlp/ik_dataset_meta.json` (both ignored
 python mlp/dataset_gen.py
 ```
 
-Optional quick inspection:
-
-```bash
-python scripts/inspect_dataset.py
-```
+Optional quick inspection: see `mlp/ik_dataset_meta.json` and the dataset keys in `mlp/ik_dataset.npz` (both are ignored by git).
 
 ## 2) Train
 
@@ -56,12 +52,6 @@ python plot_eval_results.py
 Outputs:
 - `eval_results.json`: full trial records (ignored by git by default)
 - `eval_results_plots.png`: plots comparing baseline vs MLP-init
-
-## 4) Quick solver smoke-test (no training)
-
-```bash
-python scripts/run_position_ik_tests.py
-```
 
 ## Notes
 - Angles are handled in **degrees** in the solver APIs; URDF joint limits are in **radians** (converted internally).
