@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+
+# Datasets / artifacts (do not commit)
+*.npz
+*.pt
+*.png
+eval_results.json
+train_log.txt
+
+
