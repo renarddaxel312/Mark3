@@ -1,6 +1,6 @@
-# MLP Initializer for Modular Robot IK (URDF)
+# MLP Initializer for Modular Robot IK Solver
 
-This project trains a **Multi-Layer Perceptron (MLP)** to predict a good initial joint configuration for a **numerical IK solver** on **modular robots** (variable DOF, joint-type sequences). The final approach is **hybrid**:
+This project trains a **Multi-Layer Perceptron (MLP)** to predict a good initial joint configuration for a **numerical IK solver** on **modular robots** (variable DOF, joint-type sequences). The final approach is:
 
 1. MLP predicts an initial guess \(q_{init}\) (in degrees).
 2. A Damped Least Squares IK refines it to reach the target position.
@@ -20,17 +20,17 @@ pip install numpy torch matplotlib
 
 ## 1) Generate dataset
 
-This generates `mlp/ik_dataset.npz` and `mlp/ik_dataset_meta.json` (both ignored by git).
+This generates `mlp/ik_dataset.npz` and `mlp/ik_dataset_meta.json'.
 
 ```bash
 python mlp/dataset_gen.py
 ```
 
-Optional quick inspection: see `mlp/ik_dataset_meta.json` and the dataset keys in `mlp/ik_dataset.npz` (both are ignored by git).
+
 
 ## 2) Train
 
-This writes `mlp/mlp_initializer.pt` and `mlp/mlp_initializer.pt.meta.json` (ignored by git).
+This writes `mlp/mlp_initializer.pt` and `mlp/mlp_initializer.pt.meta.json`.
 
 ```bash
 python mlp/train_mlp.py --epochs 50 --device cpu
@@ -50,7 +50,7 @@ python plot_eval_results.py
 ```
 
 Outputs:
-- `eval_results.json`: full trial records (ignored by git by default)
+- `eval_results.json`: full trial records
 - `eval_results_plots.png`: plots comparing baseline vs MLP-init
 
 ## Notes
