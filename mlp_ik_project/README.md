@@ -29,7 +29,7 @@ python mlp/dataset_gen.py
 Optional quick inspection:
 
 ```bash
-python inspect_dataset.py
+python scripts/inspect_dataset.py
 ```
 
 ## 2) Train
@@ -60,7 +60,7 @@ Outputs:
 ## 4) Quick solver smoke-test (no training)
 
 ```bash
-python run_position_ik_tests.py
+python scripts/run_position_ik_tests.py
 ```
 
 ## Notes

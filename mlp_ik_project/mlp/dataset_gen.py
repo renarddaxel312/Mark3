@@ -6,7 +6,7 @@ from typing import List, Dict
 
 import numpy as np
 
-# Add parent directory to path
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from functions import urdf, parse_urdf
@@ -14,7 +14,7 @@ from urdf_position_ik.solver import inverse_kinematics_pos, forward_kinematics_p
 
 
 def filtered_random_config(rng, min_joints=3, max_joints=7):
-    """Random joint-type config without additional constraints."""
+    """Random joint-type config."""
     joint_types = ["rot180", "rot360"]
     n = rng.integers(min_joints, max_joints + 1)
     config = [rng.choice(joint_types) for _ in range(n)]
@@ -23,7 +23,7 @@ def filtered_random_config(rng, min_joints=3, max_joints=7):
 
 
 def canonical_configs():
-    """Seed configs per DOF with alternating patterns."""
+    """Seed configs per DOF."""
     configs = []
     for n in range(3, 8):
         alt = ["rot360" if i % 2 == 0 else "rot180" for i in range(n)]
@@ -49,7 +49,7 @@ def success_configs_from_log(path="ik_run_data.json", err_thresh=0.01):
 
 
 def mutate_config(config, rng, max_mutations=1):
-    """Small mutations: swap one joint type or swap adjacent pair."""
+    """Small config mutation."""
     base = config[:-1]
     for _ in range(max_mutations):
         if rng.random() < 0.5:
@@ -63,20 +63,16 @@ def mutate_config(config, rng, max_mutations=1):
 
 
 def build_config_pool_all():
-    """
-    Enumerate all joint-type configs for lengths 3..7 (2^n each), append terminal rot360.
-    Total unique configs = sum_{n=3..7} 2^n = 248.
-    """
+    """All joint-type configs for DOF 3..7 (248 total)."""
     pool = []
     joint_types = ["rot180", "rot360"]
     for n in range(3, 8):
-        # generate all binary sequences of length n
         for mask in range(2**n):
             cfg = []
             for i in range(n):
                 bit = (mask >> i) & 1
                 cfg.append(joint_types[bit])
-            cfg.append("rot360")  # terminal element for urdf()
+            cfg.append("rot360")  
             pool.append(cfg)
     return pool
 
@@ -123,7 +119,7 @@ def generate_dataset(
     out_path="mlp/ik_dataset.npz",
     summary_path="mlp/ik_dataset_meta.json",
     trials_per_config=2500,
-    error_keep_thresh=0.01,  # keep samples with IK error <= 1 cm by default
+    error_keep_thresh=0.01,  # keep samples with IK error <= 1 cm 
     seed=0,
     collect_solver_stats=True,
 ):
@@ -197,7 +193,7 @@ def generate_dataset(
             if success:
                 successes += 1
             
-            # Filter out samples with too high IK error
+            # Filter IK error
             if err > error_keep_thresh:
                 filtered_out += 1
                 continue
@@ -210,7 +206,7 @@ def generate_dataset(
             X_list.append(x)
             y_list.append(y_padded)
             
-            # Since we ran in batch, individual time is average
+           
             meta.append(
                 {
                     "config": cfg,

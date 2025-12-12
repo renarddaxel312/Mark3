@@ -63,7 +63,6 @@ Joint angles are normalized to the range $[-0.5, 0.5]$ (approx) based on their p
 
 1.  **Generate Data**:
     ```bash
-    # Note: The directory name has a trailing space
     python mlp/dataset_gen.py
     ```
     Produces `mlp/ik_dataset.npz`.

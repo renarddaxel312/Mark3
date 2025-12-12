@@ -4,6 +4,10 @@ import numpy as np
 import time
 import json
 import os
+import sys
+
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from functions import urdf, parse_urdf
 from urdf_position_ik.solver import inverse_kinematics_pos, forward_kinematics_pos
@@ -32,7 +36,7 @@ def random_config(rng, min_joints=3, max_joints=7):
             continue
 
         config = list(seq)
-        config.append("rot360")  
+        config.append("rot360")  # terminal element for urdf()
         return config
 
     n = rng.integers(min_joints, max_joints + 1)

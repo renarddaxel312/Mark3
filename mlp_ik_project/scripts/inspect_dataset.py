@@ -7,8 +7,8 @@ import json
 import sys
 import os
 
-# Ensure local package imports work when running from repo root
-sys.path.insert(0, os.path.dirname(__file__))
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 npz_path = "mlp/ik_dataset.npz"
 json_path = "mlp/ik_dataset_meta.json"
@@ -25,7 +25,7 @@ print("=" * 60)
 if os.path.exists(json_path):
     with open(json_path, 'r') as f:
         summary = json.load(f)
-    print("\n📊 Summary (from meta.json):")
+    print("\nSummary (meta.json):")
     for key, value in summary.items():
         print(f"  {key}: {value}")
     print()
@@ -33,14 +33,14 @@ if os.path.exists(json_path):
 # Load npz file
 data = np.load(npz_path, allow_pickle=True)
 
-print("📦 NPZ File Contents:")
+print("NPZ file contents:")
 print(f"  Keys: {list(data.keys())}")
 print()
 
 # Inspect each array
 for key in data.keys():
     arr = data[key]
-    print(f"🔹 {key}:")
+    print(f"{key}:")
     print(f"   Shape: {arr.shape}")
     print(f"   Dtype: {arr.dtype}")
     
@@ -66,7 +66,7 @@ for key in data.keys():
     print()
 
 print("=" * 60)
-print(f"✅ Dataset loaded successfully!")
+print("Dataset loaded successfully.")
 print(f"   Total samples: {data['X'].shape[0]}")
 print("=" * 60)
 

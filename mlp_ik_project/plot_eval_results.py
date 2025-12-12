@@ -150,7 +150,7 @@ def fmt(x, nd=4):
 md_lines = []
 md_lines.append("# Evaluation summary (converged only)")
 md_lines.append("")
-md_lines.append("All metrics below are computed **only on converged trials**. The convergence rate is reported separately.")
+md_lines.append("All metrics below are computed on converged trials only. The convergence rate is reported separately.")
 md_lines.append("")
 md_lines.append("| Method | Converged rate | N converged | N total | Median iters | P90 iters | Median time (s) | P90 time (s) | Median err (m) | P90 err (m) |")
 md_lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
