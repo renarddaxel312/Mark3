@@ -170,18 +170,18 @@ def generate_dataset(
                 return_stats=True,
             )
         else:
-        q_sols, errors = inverse_kinematics_batch(
-            urdf_info,
-            targets=targets,
-            q_init=None,
-            max_iter=2000,
-            lr=0.25,
-            lam=5e-4,
-            tol=5e-3,
-            use_base_yaw=True,
-            verbose=True,
-            log_interval=200,
-        )
+            q_sols, errors = inverse_kinematics_batch(
+                urdf_info,
+                targets=targets,
+                q_init=None,
+                max_iter=2000,
+                lr=0.25,
+                lam=5e-4,
+                tol=5e-3,
+                use_base_yaw=True,
+                verbose=True,
+                log_interval=200,
+            )
         t1 = time.time()
         batch_duration = t1 - t0
         print(f"  Batch done in {batch_duration:.2f}s | mean err={errors.mean():.6f} | max err={errors.max():.6f}")

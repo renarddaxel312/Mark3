@@ -6,6 +6,8 @@ __pycache__/
 *.pt
 *.png
 eval_results.json
+eval_summary.md
+eval_summary.csv
 train_log.txt
 
 

@@ -51,7 +51,7 @@ def compare(model, device, trials=100, seed=0, log_every=1, max_err=0.01, max_re
 
             # Baseline
             t0 = time.time()
-            q_base = inverse_kinematics_pos(
+            q_base, stats_base = inverse_kinematics_pos(
                 urdf_info,
                 target_pos=target,
                 q_init=None,
@@ -62,17 +62,23 @@ def compare(model, device, trials=100, seed=0, log_every=1, max_err=0.01, max_re
                 eps_fd=0.08,
                 n_restarts=3,
                 use_base_yaw=True,
+                return_stats=True,
             )
             t1 = time.time()
             ee_base = forward_kinematics_pos(urdf_info, q_base)
             err_base = float(np.linalg.norm(target - ee_base))
+            it_base = int(stats_base.get("iterations") or 2000) if isinstance(stats_base, dict) else 2000
+            conv_base = bool(stats_base.get("converged")) if isinstance(stats_base, dict) else False
+            # If not converged, treat as max-iter run for reporting iterations
+            if not conv_base:
+                it_base = 2000
 
             if max_err is None or err_base <= max_err or resamples >= max_resamples:
                 break
             resamples += 1
 
         # Baseline (computed already if loop broke on threshold)
-        stats["baseline"].append({"err": err_base, "time": t1 - t0})
+        stats["baseline"].append({"err": err_base, "time": t1 - t0, "iters": it_base, "converged": conv_base})
 
         # MLP init
         x = encode_input(target, cfg)
@@ -81,7 +87,7 @@ def compare(model, device, trials=100, seed=0, log_every=1, max_err=0.01, max_re
         q_init = denorm_angles(pred[: urdf_info["n_joints"]], urdf_info["joint_limits"])
 
         t2 = time.time()
-        q_mlp = inverse_kinematics_pos(
+        q_mlp, stats_mlp = inverse_kinematics_pos(
             urdf_info,
             target_pos=target,
             q_init=q_init,
@@ -92,11 +98,16 @@ def compare(model, device, trials=100, seed=0, log_every=1, max_err=0.01, max_re
             eps_fd=0.08,
             n_restarts=3,
             use_base_yaw=True,
+            return_stats=True,
         )
         t3 = time.time()
         ee_mlp = forward_kinematics_pos(urdf_info, q_mlp)
         err_mlp = float(np.linalg.norm(target - ee_mlp))
-        stats["mlp"].append({"err": err_mlp, "time": t3 - t2})
+        it_mlp = int(stats_mlp.get("iterations") or 2000) if isinstance(stats_mlp, dict) else 2000
+        conv_mlp = bool(stats_mlp.get("converged")) if isinstance(stats_mlp, dict) else False
+        if not conv_mlp:
+            it_mlp = 2000
+        stats["mlp"].append({"err": err_mlp, "time": t3 - t2, "iters": it_mlp, "converged": conv_mlp})
 
         if log_every and t % log_every == 0:
             mean_b_err = np.mean([r["err"] for r in stats["baseline"]])
@@ -110,15 +121,60 @@ def compare(model, device, trials=100, seed=0, log_every=1, max_err=0.01, max_re
             )
 
     def summarize(records):
-        errs = [r["err"] for r in records]
-        times = [r["time"] for r in records]
+        conv_mask = [bool(r.get("converged", False)) for r in records]
+        conv_rate = float(np.mean(conv_mask)) if conv_mask else 0.0
+
+        # Converged-only arrays (these define ALL reported stats)
+        errs = [r["err"] for r in records if bool(r.get("converged", False))]
+        times = [r["time"] for r in records if bool(r.get("converged", False))]
+        iters = [r.get("iters", 0) for r in records if bool(r.get("converged", False))]
+
+        def pct(arr, p):
+            if not arr:
+                return None
+            return float(np.percentile(arr, p))
+
+        if not errs:
+            # No converged runs; keep fields present but None so downstream can handle it.
+            return {
+                "converged_rate": conv_rate,
+                "n_converged": 0,
+                "n_total": len(records),
+                "mean_err": None,
+                "median_err": None,
+                "p90_err": None,
+                "max_err": None,
+                "mean_time": None,
+                "median_time": None,
+                "p90_time": None,
+                "max_time": None,
+                "mean_iters": None,
+                "median_iters": None,
+                "p90_iters": None,
+                "max_iters": None,
+            }
+
         return {
+            # Always report convergence separately
+            "converged_rate": conv_rate,
+            "n_converged": int(sum(conv_mask)),
+            "n_total": int(len(records)),
+
+            # All following stats are CONVERGED-ONLY by design
             "mean_err": float(np.mean(errs)),
             "median_err": float(np.median(errs)),
+            "p90_err": pct(errs, 90),
             "max_err": float(np.max(errs)),
+
             "mean_time": float(np.mean(times)),
             "median_time": float(np.median(times)),
+            "p90_time": pct(times, 90),
             "max_time": float(np.max(times)),
+
+            "mean_iters": float(np.mean(iters)),
+            "median_iters": float(np.median(iters)),
+            "p90_iters": pct(iters, 90),
+            "max_iters": float(np.max(iters)),
         }
 
     return {
