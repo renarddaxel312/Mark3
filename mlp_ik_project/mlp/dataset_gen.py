@@ -212,9 +212,7 @@ def generate_dataset(
                     "config": cfg,
                     "dof": urdf_info["n_joints"],
                     "target": target.tolist(),
-                    # re-compute EE for meta consistency or trust solver? 
-                    # Trust solver's final pos if needed, but we have error.
-                    # Let's just store the target and error.
+
                     "ee": forward_kinematics_pos(urdf_info, q_sol).tolist(),
                     "error_m": err,
                     "time_s": batch_duration / trials_per_config,
